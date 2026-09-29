@@ -1,0 +1,100 @@
+trigger:
+  branches:
+    include:
+      - '*'
+
+pr:
+  branches:
+    include:
+      - '*'
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PYTHON_VERSION: '3.11'
+  COPILOT_SDK_VERSION: '1.0.14'
+  COPILOT_RUNTIME_CACHE: '$(Pipeline.Workspace)/.copilot-cli'
+
+stages:
+  - stage: Offline
+    displayName: Offline checks
+    jobs:
+      - job: Offline
+        steps:
+          - checkout: self
+            fetchDepth: 0
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(PYTHON_VERSION)'
+          - task: NodeTool@0
+            displayName: Use Node 22
+            inputs:
+              versionSpec: '22.x'
+          - script: |
+              set -euo pipefail
+              python -m pip install --upgrade pip
+              python -m pip install -r requirements.txt
+              ruff check .
+              python -m py_compile review_agent.py playground/*.py tests/*.py
+              pytest
+              python review_agent.py --dry-run
+            displayName: Lint, test, and offline dry-run
+
+  - stage: Review
+    displayName: Copilot PR review
+    dependsOn: Offline
+    # Do NOT test GITHUB_TOKEN here. Secret variables are deliberately not exposed to
+    # variables[] in conditions, so ne(variables['GITHUB_TOKEN'], '') is ALWAYS false and
+    # the stage would silently skip forever. The token check lives in the script below.
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - job: Review
+        steps:
+          - checkout: self
+            fetchDepth: 0
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(PYTHON_VERSION)'
+          - task: NodeTool@0
+            displayName: Use Node 22
+            inputs:
+              versionSpec: '22.x'
+          - task: Cache@2
+            displayName: Cache Copilot runtime
+            inputs:
+              # Every non-quoted key segment is treated as a FILE PATH by Cache@2.
+              # $(COPILOT_SDK_VERSION) unquoted fails with "File not found: 1.0.14".
+              key: 'copilot-cli | "$(Agent.OS)" | "$(COPILOT_SDK_VERSION)"'
+              path: '$(COPILOT_RUNTIME_CACHE)'
+          - script: |
+              set -euo pipefail
+              python -m pip install --upgrade pip
+              python -m pip install -r requirements.txt
+              export COPILOT_CLI_EXTRACT_DIR="$(COPILOT_RUNTIME_CACHE)"
+              python -m copilot download-runtime
+              collection="$(System.TeamFoundationCollectionUri)"
+              org="${collection#https://dev.azure.com/}"
+              org="${org%%/*}"
+              # PR_ID comes through env, not inline. When the variable is undefined
+              # (e.g. a manually queued build) Azure DevOps leaves the macro text
+              # in place; inline, bash would run it as command substitution and
+              # pass an empty --pr. A digits-only test covers both cases without
+              # embedding a literal command-substitution sequence in this script.
+              case "${PR_ID:-}" in
+                ''|*[!0-9]*)
+                  echo "##vso[task.logissue type=warning]No pull request id; this stage only runs for PR validation builds."
+                  exit 0
+                  ;;
+              esac
+              python review_agent.py \
+                --org "$org" \
+                --project "$(System.TeamProject)" \
+                --repo "$(Build.Repository.Name)" \
+                --pr "$PR_ID" \
+                --model "claude-sonnet-4.5"
+            displayName: Run Copilot SDK review
+            env:
+              GITHUB_TOKEN: $(GITHUB_TOKEN)
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              PR_ID: $(System.PullRequest.PullRequestId)

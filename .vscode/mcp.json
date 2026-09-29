@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "azure-devops": {
+      "type": "http",
+      "url": "https://mcp.dev.azure.com/azultechlab",
+      "tools": ["*"]
+    },
+    "microsoft-learn": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp",
+      "tools": ["*"]
+    },
+    "azure-devops-local-fallback": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "@azure-devops/mcp", "azultechlab"],
+      "tools": ["*"]
+    }
+  }
+}

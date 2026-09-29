@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# review_agent.py lives at the repo root. Bare `pytest` does not put the rootdir on
+# sys.path (unlike `python -m pytest`), so without this the suite passes locally and
+# fails in CI with ModuleNotFoundError.
+pythonpath = ["."]

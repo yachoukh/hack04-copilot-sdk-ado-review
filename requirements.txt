@@ -1,0 +1,7 @@
+# The Copilot SDK is in technical preview and ships release candidates;
+# pin deliberately instead of floating to latest.
+github-copilot-sdk==1.0.14
+requests>=2.32.0
+pydantic>=2.8.0
+pytest>=8.2.0
+ruff>=0.6.0
